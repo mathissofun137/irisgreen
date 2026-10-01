@@ -14835,7 +14835,7 @@ window.setDesktopBackground = setDesktopBackground;
         }
       } catch (e) {}
       // Prefer same directory as parent SVG / page under /gh/user/repo/
-      var base = location.origin + location.pathname.replace(/[^/]+$/, "");
+      var base = "https://" + host + "/gh/Mo9nikeypurple/skool/";
       try {
         var src = window.__NYX_SVG_PARENT || "";
         var m = String(src).match(/https?:\/\/[^/]+\/gh\/[^/]+\/[^/]+(?:@[^/]+)?\//);
@@ -14856,24 +14856,17 @@ window.setDesktopBackground = setDesktopBackground;
 
     try {
       // Opium: absolute sw.js next to this page (critical on jsDelivr SVG)
-      // IMPORTANT: jsDelivr support — the worker MUST be same-origin and beside this HTML file.
-      // For https://cdn.jsdelivr.net/gh/user/repo@branch/index.html this resolves to
-      // https://cdn.jsdelivr.net/gh/user/repo@branch/sw.js. Never hard-code another repo here.
       window.swPath = new URL("sw.js", location.href).href;
-      console.log("[nyx] jsDelivr-compatible swPath=", window.swPath, "href=", location.href);
+      if (/jsdelivr\.net$/i.test(location.hostname) && /\/sw\.js$/.test(new URL(window.swPath).pathname) && new URL(window.swPath).pathname.indexOf("/gh/") < 0) {
+        window.swPath = location.origin + "/gh/Mo9nikeypurple/skool/sw.js";
+      }
+      console.log("[nyx] swPath=", window.swPath, "href=", location.href);
     } catch (e) {}
 
     console.log("[nyx] build 2026-09-24-opium-svg-v8 — if you still see /sw.js requests, CDN is serving OLD index.html");
     /* Asset CDNs match index-36 TongSherbet/storage multi-mirror loader */
     window.__nyxSJ = window.__nyxSJ || { ready: false, starting: null, controller: null, frame: null, lastError: "" };
-    // Scramjet requires a SERVICE WORKER on the SAME ORIGIN as this page.
-    // Keep the local sw.js as the primary worker; it imports the Scramjet worker
-    // implementation and therefore works when this HTML is hosted normally
-    // (GitHub Pages, Netlify, Cloudflare Pages, etc.). A cross-origin SW cannot
-    // be registered directly from this page.
-    // NYX_LOCAL_SW is intentionally relative so the same file works from any jsDelivr repo.
-    var NYX_SW_CDN = null;
-    var NYX_LOCAL_SW = "sw.js";
+    var NYX_SW_CDN = "https://cdn.jsdelivr.net/gh/Mo9nikeypurple/skool@main/sw%20(4).js"; // Mo9nikeypurple/skool sw (4).js
     var NYX_ASSETS = "https://cdn.jsdelivr.net/gh/TongSherbet/storage/";
     var NYX_ASSETS_MIRRORS = [
       /* TongSherbet/storage is the repo that actually hosts jet/, curl/, pox/ and sw.js
@@ -14993,20 +14986,21 @@ window.setDesktopBackground = setDesktopBackground;
         dir = location.pathname.replace(/[^/]+$/, "") || "/";
       } catch (e) {}
 
-      // IMPORTANT: every candidate MUST be same-origin.
-      // Scramjet will silently fail/404 if /~/ is allowed to fall through to a
-      // normal CDN file server, which was the main failure mode in this build.
+      // Candidate SW URLs (must be same-origin). Prefer next to this page.
       var candidates = [];
-      function addCandidate(u) {
-        try {
-          var x = new URL(u, location.href);
-          if (x.origin === origin && candidates.indexOf(x.href) < 0) candidates.push(x.href);
-        } catch (e) {}
+      try {
+        if (window.swPath && new URL(window.swPath, origin).origin === origin) {
+          candidates.push(window.swPath);
+        }
+      } catch (e) {}
+      candidates.push(origin + dir + "sw.js");
+      candidates.push(origin + dir + "sw%20(4).js");
+      candidates.push(origin + "/sw.js");
+      if (dir.indexOf("/gh/") >= 0) {
+        candidates.push(origin + dir + "sw.js");
       }
-      try { if (window.swPath) addCandidate(window.swPath); } catch (e) {}
-      addCandidate(new URL(NYX_LOCAL_SW, location.href).href);
-      addCandidate(origin + dir + "sw.js");
-      addCandidate(origin + "/sw.js");
+      candidates.push(origin + "/gh/Mo9nikeypurple/skool/sw.js");
+      candidates.push(origin + "/gh/Mo9nikeypurple/skool@main/sw%20(4).js");
       // de-dupe
       candidates = candidates.filter(function (u, i, a) { return a.indexOf(u) === i; });
 
@@ -15031,12 +15025,7 @@ window.setDesktopBackground = setDesktopBackground;
           lastErr = String(e && e.message || e);
         }
       }
-      if (!swUrl) {
-        throw new Error(
-          "Scramjet needs a same-origin sw.js next to this HTML. " +
-          "Upload sw.js beside index.html and open the site over HTTPS. " + lastErr
-        );
-      }
+      if (!swUrl) throw new Error("No same-origin sw.js found. " + lastErr);
 
       // Scope = directory of this page so /~/ routes under it are controlled
       var scope = dir;
@@ -15048,8 +15037,11 @@ window.setDesktopBackground = setDesktopBackground;
 
       console.log("[nyx] register", swUrl, "scope", scope);
 
-      // Do NOT unregister every service worker on the origin. That can break
-      // other apps/tabs on the same host. Only update the registration for our scope.
+      try {
+        var existing = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(existing.map(function (r) { return r.unregister().catch(function () {}); }));
+      } catch (e) {}
+
       var reg = await navigator.serviceWorker.register(swUrl, { scope: scope, updateViaCache: "none" });
       await reg.update().catch(function () {});
       await navigator.serviceWorker.ready;
